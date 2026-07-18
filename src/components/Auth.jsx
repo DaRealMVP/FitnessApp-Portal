@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 // Email + password login / signup screen. Shown when cloud sync is
 // configured but the user isn't signed in yet.
 export default function Auth() {
-  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'reset'
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -16,25 +16,6 @@ export default function Auth() {
     e.preventDefault();
     setError('');
     setMessage('');
-    if (mode === 'reset') {
-      if (!email) {
-        setError('Enter your email so we can send a reset link.');
-        return;
-      }
-      setBusy(true);
-      try {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + window.location.pathname,
-        });
-        if (error) throw error;
-        setMessage('If an account exists for that email, a password reset link is on its way. Check your inbox.');
-      } catch (err) {
-        setError(err?.message || 'Could not send reset email.');
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
     if (!email || !password) {
       setError('Enter your email and password.');
       return;
@@ -73,9 +54,7 @@ export default function Auth() {
           <Dumbbell size={24} /> Eve Fitness
         </div>
         <div style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
-          {mode === 'signin' ? 'Sign in to sync your data'
-            : mode === 'signup' ? 'Create your account'
-            : 'Reset your password'}
+          {mode === 'signin' ? 'Sign in to sync your data' : 'Create your account'}
         </div>
 
         <input
@@ -83,36 +62,24 @@ export default function Auth() {
           onChange={(e) => setEmail(e.target.value)}
           style={inputStyle}
         />
-        {mode !== 'reset' && (
-          <input
-            type="password" placeholder="Password" value={password}
-            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-            onChange={(e) => setPassword(e.target.value)}
-            style={inputStyle}
-          />
-        )}
+        <input
+          type="password" placeholder="Password" value={password}
+          autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+          onChange={(e) => setPassword(e.target.value)}
+          style={inputStyle}
+        />
 
         {error && <div style={{ color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
         {message && <div style={{ color: '#4ade80', fontSize: '0.8rem' }}>{message}</div>}
 
         <button type="submit" className="btn btn-primary" disabled={busy}
           style={{ justifyContent: 'center', marginTop: '0.25rem' }}>
-          <LogIn size={16} /> {busy ? 'Please wait…'
-            : mode === 'signin' ? 'Sign In'
-            : mode === 'signup' ? 'Sign Up'
-            : 'Send Reset Link'}
+          <LogIn size={16} /> {busy ? 'Please wait…' : mode === 'signin' ? 'Sign In' : 'Sign Up'}
         </button>
-
-        {mode === 'signin' && (
-          <button type="button" onClick={() => { setMode('reset'); setError(''); setMessage(''); }}
-            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '0.8rem' }}>
-            Forgot password?
-          </button>
-        )}
 
         <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); setMessage(''); }}
           style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '0.8rem' }}>
-          {mode === 'signin' ? "No account? Sign up" : mode === 'signup' ? 'Have an account? Sign in' : 'Back to sign in'}
+          {mode === 'signin' ? "No account? Sign up" : 'Have an account? Sign in'}
         </button>
       </form>
     </div>
