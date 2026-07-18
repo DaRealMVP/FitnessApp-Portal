@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 export function useAuth() {
   const [session, setSession] = useState(null);
   const [ready, setReady] = useState(!supabase); // no cloud => nothing to wait for
+  const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -17,8 +18,9 @@ export function useAuth() {
       setReady(true);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s ?? null);
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
     });
 
     return () => {
@@ -27,5 +29,5 @@ export function useAuth() {
     };
   }, []);
 
-  return { session, ready };
+  return { session, ready, recovery, clearRecovery: () => setRecovery(false) };
 }
