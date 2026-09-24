@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, Fragment } from 'react';
-import { Plus, Upload, Trash2, FileText, Check, X, ChevronLeft, ChevronRight, DollarSign, Flag } from 'lucide-react';
+import { Plus, Upload, Trash2, FileText, Check, X, ChevronLeft, ChevronRight, DollarSign, Flag, Plane } from 'lucide-react';
 import { startOfWeek, addDays, addWeeks, subWeeks, format, isSameDay, getDay } from 'date-fns';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerText from 'pdfjs-dist/build/pdf.worker.min.mjs?raw';
@@ -34,6 +34,18 @@ function getClientColor(name, clients) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return SESSION_COLORS[Math.abs(hash) % SESSION_COLORS.length];
+}
+
+function getVacationForDate(clientName, date, clients) {
+  if (!clientName || !date) return null;
+  const client = clients.find(c => c.name === clientName);
+  return (client?.vacations || []).find(v => date >= v.startDate && date <= v.endDate) || null;
+}
+
+function formatVacationRange(vacation) {
+  const start = format(new Date(`${vacation.startDate}T00:00`), 'MMM d');
+  const end = format(new Date(`${vacation.endDate}T00:00`), 'MMM d');
+  return start === end ? start : `${start} - ${end}`;
 }
 
 function suggestNextSession(clientName, schedule) {
@@ -164,9 +176,11 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
   const [showDetailModal, setShowDetailModal] = useState(null); // session id
   const [showImportModal, setShowImportModal] = useState(false);
   const [showScpPayment, setShowScpPayment] = useState(null); // session id for SCP payment prompt
+  const [showVacationModal, setShowVacationModal] = useState(false);
   const [parsedEntries, setParsedEntries] = useState([]);
   const [importing, setImporting] = useState(false);
   const [form, setForm] = useState({ clientName: '', date: '', time: '', duration: '60', classType: '', notes: '' });
+  const [vacationForm, setVacationForm] = useState({ clientName: '', startDate: '', endDate: '', note: '' });
   const fileRef = useRef();
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -193,6 +207,22 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
     const end = format(weekDays[6], 'yyyy-MM-dd');
     return schedule.filter(s => s.date >= start && s.date <= end);
   }, [schedule, weekDays]);
+
+  const vacationsByDay = useMemo(() => {
+    const byDay = {};
+    weekDays.forEach(day => { byDay[format(day, 'yyyy-MM-dd')] = []; });
+    clients.forEach(client => {
+      (client.vacations || []).forEach(vacation => {
+        weekDays.forEach(day => {
+          const date = format(day, 'yyyy-MM-dd');
+          if (date >= vacation.startDate && date <= vacation.endDate) {
+            byDay[date].push({ client, vacation });
+          }
+        });
+      });
+    });
+    return byDay;
+  }, [clients, weekDays]);
 
   const weekStats = useMemo(() => {
     const counted = weekSessions.filter(s => s.clientName !== PERSONAL);
@@ -229,6 +259,13 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
   const addEntry = () => {
     const name = form.clientName === '__new__' ? (form._newName || '').trim() : (form.clientName || '').trim();
     if (!name || !form.date || !form.time) return;
+    const vacation = getVacationForDate(name, form.date, clients);
+    if (vacation) {
+      const proceed = confirm(
+        `${name} is on vacation ${formatVacationRange(vacation)}${vacation.note ? ` (${vacation.note})` : ''}.\n\nSchedule this class anyway?`
+      );
+      if (!proceed) return;
+    }
     if (name !== PERSONAL) setClients(prev => prev.some(c => c.name === name) ? prev : [...prev, { id: Date.now() + Math.random(), name, email: '', phone: '', notes: '', plan: '' }]);
     setSchedule(prev => [...prev, { ...form, clientName: name, exercises: [], status: 'scheduled', id: Date.now() + Math.random() }]);
     setForm({ clientName: '', date: '', time: '', duration: '60', classType: '', notes: '' });
@@ -262,6 +299,37 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
   const openAddModal = () => {
     setForm({ clientName: '', date: '', time: '', duration: '60', classType: '', notes: '', _fromCell: false });
     setShowAddModal(true);
+  };
+
+  const openVacationModal = () => {
+    setVacationForm({ clientName: '', startDate: '', endDate: '', note: '' });
+    setShowVacationModal(true);
+  };
+
+  const addVacation = () => {
+    const { clientName, startDate, endDate, note } = vacationForm;
+    if (!clientName || !startDate || !endDate) return;
+    if (endDate < startDate) {
+      alert('Vacation end date must be on or after the start date.');
+      return;
+    }
+    const vacation = { id: Date.now() + Math.random(), startDate, endDate, note: note.trim() };
+    setClients(prev => {
+      const existing = prev.find(c => c.name === clientName);
+      if (existing) {
+        return prev.map(c => c.name === clientName
+          ? { ...c, vacations: [...(c.vacations || []), vacation] }
+          : c);
+      }
+      return [...prev, { id: Date.now() + Math.random(), name: clientName, email: '', phone: '', notes: '', plan: '', vacations: [vacation] }];
+    });
+    setShowVacationModal(false);
+  };
+
+  const deleteVacation = (clientName, vacationId) => {
+    setClients(prev => prev.map(c => c.name === clientName
+      ? { ...c, vacations: (c.vacations || []).filter(v => v.id !== vacationId) }
+      : c));
   };
 
   // PDF import
@@ -320,6 +388,9 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
             <Upload size={16} /> {importing ? 'Reading...' : 'Import PDF'}
           </button>
           <input ref={fileRef} type="file" accept=".pdf" multiple hidden onChange={handlePdfUpload} />
+          <button className="btn btn-ghost" onClick={openVacationModal}>
+            <Plane size={16} /> Add Vacation
+          </button>
           <button className="btn btn-primary" onClick={openAddModal}>
             <Plus size={16} /> Add Session
           </button>
@@ -352,6 +423,31 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
       {viewMode === 'calendar' && (
         <div className="calendar-container">
           <div className="calendar-grid-wrapper">
+            <div className="vacation-grid">
+              <div className="vacation-label"><Plane size={13} /> Away</div>
+              {weekDays.map(day => {
+                const date = format(day, 'yyyy-MM-dd');
+                return (
+                  <div key={date} className="vacation-day">
+                    {(vacationsByDay[date] || []).map(({ client, vacation }) => (
+                      <div
+                        key={`${client.id}-${vacation.id}`}
+                        className="vacation-chip"
+                        style={{ borderColor: client.color || getClientColor(client.name, clients) }}
+                        title={`${client.name}: ${formatVacationRange(vacation)}${vacation.note ? ` - ${vacation.note}` : ''}`}
+                      >
+                        <span>{client.name}</span>
+                        <button
+                          type="button"
+                          aria-label={`Delete ${client.name} vacation`}
+                          onClick={() => deleteVacation(client.name, vacation.id)}
+                        ><X size={10} /></button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
             <div className="calendar-grid">
               <div className="calendar-corner" />
               {weekDays.map((day, i) => (
@@ -542,9 +638,16 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
                 />
               )}
               {form.clientName && form.clientName !== '__new__' && form.date && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.3rem' }}>
-                  Suggested based on previous sessions
-                </p>
+                getVacationForDate(form.clientName, form.date, clients) ? (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--warning)', marginTop: '0.3rem' }}>
+                    <Plane size={12} style={{ verticalAlign: -2, marginRight: 4 }} />
+                    This client is on vacation that day. You will be asked to confirm.
+                  </p>
+                ) : (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.3rem' }}>
+                    Suggested based on previous sessions
+                  </p>
+                )
               )}
             </div>
 
@@ -575,6 +678,40 @@ export default function Schedule({ schedule, setSchedule, clients, setClients, p
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setShowAddModal(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={addEntry}>Add Session</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== ADD VACATION MODAL ===== */}
+      {showVacationModal && (
+        <div className="modal-overlay" onClick={() => setShowVacationModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <h2 className="modal-title"><Plane size={18} style={{ display: 'inline', marginRight: 8 }} />Add Client Vacation</h2>
+            <div className="form-group">
+              <label className="form-label">Client</label>
+              <select value={vacationForm.clientName} onChange={e => setVacationForm({ ...vacationForm, clientName: e.target.value })}>
+                <option value="">Select client...</option>
+                {allClientNames.filter(name => name !== 'Single Class Pass').map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Start date</label>
+                <input type="date" value={vacationForm.startDate} onChange={e => setVacationForm({ ...vacationForm, startDate: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">End date</label>
+                <input type="date" value={vacationForm.endDate} onChange={e => setVacationForm({ ...vacationForm, endDate: e.target.value })} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Note</label>
+              <input value={vacationForm.note} onChange={e => setVacationForm({ ...vacationForm, note: e.target.value })} placeholder="Optional, e.g. Hawaii" />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowVacationModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={addVacation}>Add Vacation</button>
             </div>
           </div>
         </div>

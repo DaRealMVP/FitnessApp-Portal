@@ -132,7 +132,7 @@ export default function Clients({ clients, setClients, goals, setGoals, schedule
             const plan = realClient?.plan || '';
 
             const bought = (payments || []).filter(p => p.clientName === c.name).reduce((s, p) => s + (p.classesPurchased || 0), 0);
-            const attended = schedule.filter(s => s.clientName === c.name && (s.status === 'completed' || (!s.status && s.date < today))).length;
+            const attended = schedule.filter(s => s.clientName === c.name && (s.status === 'completed' || s.status === 'no-show' || (!s.status && s.date < today))).length;
             const remaining = bought - attended;
             const hasPkg = (payments || []).some(p => p.clientName === c.name);
 
